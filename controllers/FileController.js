@@ -4,16 +4,16 @@ const fs = require('fs');
 const db = require('../config/database');
 
 const uploadFile = async (req, res) => {
-    console.log('Upload request received:', {
-        files: req.files ? Object.keys(req.files) : 'no files',
-        body: req.body,
-        headers: req.headers
+    console.log('Upload endpoint hit:', {
+        method: req.method,
+        contentType: req.headers['content-type'],
+        hasFiles: !!req.files,
+        fileKeys: req.files ? Object.keys(req.files) : []
     });
 
     try {
-        // File existence check
         if (!req.files || !req.files.file) {
-            console.log('No files were uploaded');
+            console.log('No file in request:', req.files);
             return res.status(400).json({
                 success: false,
                 message: 'No file was uploaded',
@@ -22,30 +22,17 @@ const uploadFile = async (req, res) => {
         }
 
         const file = req.files.file;
+        console.log('File received:', {
+            name: file.name,
+            size: file.size,
+            mimetype: file.mimetype,
+            md5: file.md5
+        });
 
-        // File type validation
-        if (!file.name.endsWith('.csv')) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid file type',
-                details: 'Please upload a CSV file only'
-            });
-        }
-
-        // File size validation (5MB limit)
-        const maxSize = 5 * 1024 * 1024; // 5MB in bytes
-        if (file.size > maxSize) {
-            return res.status(400).json({
-                success: false,
-                message: 'File too large',
-                details: 'Maximum file size is 5MB'
-            });
-        }
-
-        // Process CSV directly from buffer
-        const parseCSV = (buffer) => {
-            return new Promise((resolve, reject) => {
-                parse(buffer, {
+        // Process the file directly from the buffer
+        try {
+            const parsedData = await new Promise((resolve, reject) => {
+                parse(file.data.toString(), {
                     columns: true,
                     skip_empty_lines: true,
                     trim: true
@@ -54,32 +41,40 @@ const uploadFile = async (req, res) => {
                     else resolve(records);
                 });
             });
-        };
 
-        // Parse the CSV data from the file buffer
-        const parsedData = await parseCSV(file.data);
+            console.log('CSV parsing successful:', {
+                rowCount: parsedData.length,
+                columns: parsedData.length > 0 ? Object.keys(parsedData[0]) : []
+            });
 
-        if (parsedData.length === 0) {
-            throw new Error('Empty CSV file');
+            // Send response
+            return res.json({
+                success: true,
+                message: 'File processed successfully',
+                data: {
+                    fileName: file.name,
+                    preview: parsedData.slice(0, 5),
+                    data: parsedData,
+                    totalRows: parsedData.length,
+                    columns: Object.keys(parsedData[0] || {})
+                }
+            });
+
+        } catch (parseError) {
+            console.error('CSV parsing error:', parseError);
+            return res.status(400).json({
+                success: false,
+                message: 'CSV parsing failed',
+                details: parseError.message
+            });
         }
 
-        // Send response with parsed data
-        res.json({
-            success: true,
-            message: 'File processed successfully',
-            data: {
-                preview: parsedData.slice(0, 5),
-                data: parsedData,
-                totalRows: parsedData.length,
-                columns: Object.keys(parsedData[0])
-            }
-        });
-
     } catch (error) {
-        console.error('Upload error:', error);
-        res.status(500).json({
+        console.error('Upload handler error:', error);
+        return res.status(500).json({
             success: false,
-            message: error.message
+            message: 'Server error during upload',
+            details: error.message
         });
     }
 };

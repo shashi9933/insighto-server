@@ -14,29 +14,38 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// CORS configuration - update the configuration
+app.use(cors({
+    origin: ['https://insighto-client.vercel.app'],  // Only allow your Vercel domain
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+        'Origin',
+        'X-Requested-With',
+        'Content-Type',
+        'Accept',
+        'Authorization'
+    ],
+    credentials: false,
+    optionsSuccessStatus: 200
+}));
+
+// Add preflight handler
+app.options('*', cors());
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// File Upload Middleware - move this before CORS
+// File Upload Middleware - update configuration
 app.use(fileUpload({
     createParentPath: true,
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
     abortOnLimit: true,
     useTempFiles: false, // Process in memory
-    debug: process.env.NODE_ENV === 'development'
-}));
-
-// CORS configuration - update the configuration
-app.use(cors({
-    origin: [
-        'http://localhost:3000',
-        'https://insighto-client.vercel.app',
-        'https://dataviz-platform.vercel.app'
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    credentials: false
+    parseNested: true,
+    debug: true,
+    safeFileNames: true,
+    preserveExtension: true
 }));
 
 // Add request logging
@@ -45,6 +54,22 @@ app.use((req, res, next) => {
     if (req.files) {
         console.log('Files received:', Object.keys(req.files));
     }
+    next();
+});
+
+// Add request debugging middleware
+app.use((req, res, next) => {
+    console.log('Request received:', {
+        method: req.method,
+        path: req.path,
+        headers: req.headers,
+        files: req.files ? Object.keys(req.files) : 'no files',
+        fileDetails: req.files?.file ? {
+            name: req.files.file.name,
+            size: req.files.file.size,
+            mimetype: req.files.file.mimetype
+        } : null
+    });
     next();
 });
 
