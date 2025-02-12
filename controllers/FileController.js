@@ -1,43 +1,73 @@
-const { parse } = require('csv-parse/sync');
-const { storage } = require('../config/firebase');
-const { ref, uploadBytes, getDownloadURL } = require('firebase/storage');
+const { parse } = require('csv-parse');
+const path = require('path');
+const fs = require('fs');
+const db = require('../config/database');
 
 const uploadFile = async (req, res) => {
-    try {
-        console.log('Upload request received');
+    console.log('Upload request received:', {
+        files: req.files ? Object.keys(req.files) : 'no files',
+        body: req.body,
+        headers: req.headers
+    });
 
+    try {
+        // File existence check
         if (!req.files || !req.files.file) {
+            console.log('No files were uploaded');
             return res.status(400).json({
                 success: false,
-                message: 'No file was uploaded'
+                message: 'No file was uploaded',
+                details: 'Please select a file before uploading'
             });
         }
 
         const file = req.files.file;
-        const fileBuffer = file.data;
 
-        // Process CSV in memory
-        const parsedData = parse(fileBuffer, {
-            columns: true,
-            skip_empty_lines: true,
-            trim: true
-        });
+        // File type validation
+        if (!file.name.endsWith('.csv')) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid file type',
+                details: 'Please upload a CSV file only'
+            });
+        }
+
+        // File size validation (5MB limit)
+        const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+        if (file.size > maxSize) {
+            return res.status(400).json({
+                success: false,
+                message: 'File too large',
+                details: 'Maximum file size is 5MB'
+            });
+        }
+
+        // Process CSV directly from buffer
+        const parseCSV = (buffer) => {
+            return new Promise((resolve, reject) => {
+                parse(buffer, {
+                    columns: true,
+                    skip_empty_lines: true,
+                    trim: true
+                }, (err, records) => {
+                    if (err) reject(err);
+                    else resolve(records);
+                });
+            });
+        };
+
+        // Parse the CSV data from the file buffer
+        const parsedData = await parseCSV(file.data);
 
         if (parsedData.length === 0) {
             throw new Error('Empty CSV file');
         }
 
-        // Upload to Firebase Storage
-        const storageRef = ref(storage, `uploads/${Date.now()}-${file.name}`);
-        await uploadBytes(storageRef, fileBuffer);
-        const downloadURL = await getDownloadURL(storageRef);
-
-        // Send response
+        // Send response with parsed data
         res.json({
             success: true,
             message: 'File processed successfully',
             data: {
-                fileUrl: downloadURL,
                 preview: parsedData.slice(0, 5),
                 data: parsedData,
                 totalRows: parsedData.length,
