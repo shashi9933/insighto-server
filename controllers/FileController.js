@@ -44,6 +44,7 @@ const uploadFile = async (req, res) => {
 
     try {
         if (!req.files || !req.files.file) {
+            console.log('No files detected in request');
             return res.status(400).json({
                 success: false,
                 message: 'No file uploaded'
@@ -51,18 +52,31 @@ const uploadFile = async (req, res) => {
         }
 
         const file = req.files.file;
+        console.log('Processing file:', {
+            name: file.name,
+            size: file.size,
+            mimetype: file.mimetype
+        });
 
-        // Process CSV directly from buffer
+        // Process CSV data directly from buffer
         try {
-            // Parse CSV data
+            const fileContent = file.data.toString('utf8');
+            console.log('File content length:', fileContent.length);
+
             const parsedData = await new Promise((resolve, reject) => {
-                parse(file.data.toString(), {
+                parse(fileContent, {
                     columns: true,
                     skip_empty_lines: true,
-                    trim: true
+                    trim: true,
+                    cast: true // Automatically convert strings to numbers where possible
                 }, (err, records) => {
-                    if (err) reject(err);
-                    else resolve(records);
+                    if (err) {
+                        console.error('Parse error:', err);
+                        reject(err);
+                    } else {
+                        console.log('Successfully parsed records:', records.length);
+                        resolve(records);
+                    }
                 });
             });
 
@@ -70,28 +84,12 @@ const uploadFile = async (req, res) => {
                 throw new Error('No valid data found in CSV');
             }
 
-            // Get column names
+            // Process the data
             const columns = Object.keys(parsedData[0]);
+            console.log('Detected columns:', columns);
 
-            // Basic statistics for each numeric column
-            const statistics = {};
-            columns.forEach(column => {
-                const numericValues = parsedData
-                    .map(row => parseFloat(row[column]))
-                    .filter(val => !isNaN(val));
-
-                if (numericValues.length > 0) {
-                    statistics[column] = {
-                        min: Math.min(...numericValues),
-                        max: Math.max(...numericValues),
-                        average: numericValues.reduce((a, b) => a + b, 0) / numericValues.length,
-                        count: numericValues.length
-                    };
-                }
-            });
-
-            // Send complete response
-            return res.json({
+            // Send response
+            const response = {
                 success: true,
                 message: 'File processed successfully',
                 data: {
@@ -100,22 +98,24 @@ const uploadFile = async (req, res) => {
                     data: parsedData,
                     totalRows: parsedData.length,
                     columns: columns,
-                    statistics: statistics,
                     uploadTime: new Date().toISOString()
                 }
-            });
+            };
+
+            console.log('Sending response with rows:', parsedData.length);
+            return res.json(response);
 
         } catch (parseError) {
             console.error('CSV parsing error:', parseError);
             return res.status(400).json({
                 success: false,
                 message: 'CSV parsing failed',
-                details: parseError.message
+                details: parseError.message || 'Invalid CSV format'
             });
         }
 
     } catch (error) {
-        console.error('Upload error:', error);
+        console.error('Unexpected error:', error);
         return res.status(500).json({
             success: false,
             message: 'Server error',
