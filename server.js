@@ -1,10 +1,9 @@
 const express = require('express');
+const fileUpload = require('express-fileupload');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
-
-const corsMiddleware = require('./middleware/cors');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -15,34 +14,54 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Add this before other middleware
-app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-    next();
-});
-
-// Use custom CORS middleware before routes
-app.use(corsMiddleware);
-
-// Remove or comment out the previous cors configuration
-// app.use(cors(corsOptions));
-
+// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploads directory statically
+// File Upload Middleware - move this before CORS
+app.use(fileUpload({
+    createParentPath: true,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    abortOnLimit: true,
+    useTempFiles: false, // Process in memory
+    debug: process.env.NODE_ENV === 'development'
+}));
+
+// CORS configuration - update the configuration
+app.use(cors({
+    origin: [
+        'http://localhost:3000',
+        'https://insighto-client.vercel.app',
+        'https://dataviz-platform.vercel.app'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: false
+}));
+
+// Add request logging
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    if (req.files) {
+        console.log('Files received:', Object.keys(req.files));
+    }
+    next();
+});
+
+// Static files
 app.use('/uploads', express.static(uploadsDir));
 
 // Routes
 app.use('/api', require('./routes/api'));
 
-// Add error logging
+// Error handling
 app.use((err, req, res, next) => {
     console.error('Error:', err.message);
     console.error('Stack:', err.stack);
     res.status(500).json({
+        success: false,
         message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
 });
 
